@@ -11,6 +11,7 @@ web interface.
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 from typing import Union
 
@@ -21,6 +22,64 @@ from scipy.io import arff
 from src.config import DATA_DIR, get_logger
 
 logger = get_logger(__name__)
+
+
+def _strip_data_whitespace(content: str) -> str:
+    """Normalise every data line in the @DATA section before parsing.
+
+    Some ARFF files exported from OpenML contain embedded tab characters or
+    single-quote wrappers (e.g. ``'\\tno'``, ``' yes'``) and values that span
+    two physical lines.  scipy's ARFF parser does strict nominal-value
+    matching and cannot handle any of these forms.
+
+    This preprocessor:
+    1. Joins lines that were wrapped mid-value (a ``'`` at end of a line
+       followed by continuation on the next).
+    2. Removes single-quote characters and embedded tab characters from
+       each field.
+    3. Strips leading/trailing whitespace from each field.
+    """
+    lines = content.splitlines()
+    in_data = False
+    result = []
+    buf: str | None = None  # accumulates a wrapped data row
+    for line in lines:
+        stripped = line.strip()
+        if stripped.lower() == "@data":
+            in_data = True
+            result.append(line)
+            continue
+        if not in_data:
+            result.append(line)
+            continue
+        if not stripped or stripped.startswith("%"):
+            result.append(line)
+            continue
+        # Accumulate wrapped lines (a data value split across lines)
+        if buf is not None:
+            buf = buf + " " + stripped
+        else:
+            buf = stripped
+        # A complete data row has a fixed number of commas; keep joining until
+        # single-quote count is even (all opened quotes are closed).
+        if buf.count("'") % 2 != 0:
+            continue  # still inside a quoted value that spans lines
+        # Clean up each field: strip single-quotes, literal \t escape sequences,
+        # actual tab characters, and surrounding whitespace
+        fields = [
+            f.replace("'", "").replace("\\t", "").replace("\t", "").strip()
+            for f in buf.split(",")
+        ]
+        result.append(",".join(fields))
+        buf = None
+    if buf is not None:
+        # Flush any remaining partial row
+        fields = [
+            f.replace("'", "").replace("\\t", "").replace("\t", "").strip()
+            for f in buf.split(",")
+        ]
+        result.append(",".join(fields))
+    return "\n".join(result)
 
 
 def load_arff(filepath: Union[str, Path, io.BytesIO]) -> pd.DataFrame:
@@ -56,13 +115,17 @@ def load_arff(filepath: Union[str, Path, io.BytesIO]) -> pd.DataFrame:
             if not path.exists():
                 raise FileNotFoundError(f"ARFF file not found: {path}")
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                data, _meta = arff.loadarff(f)
+                content = f.read()
         else:
             # File-like object (Streamlit UploadedFile / BytesIO)
             content = filepath.read()
             if isinstance(content, bytes):
                 content = content.decode("utf-8", errors="ignore")
-            data, _meta = arff.loadarff(io.StringIO(content))
+
+        # Strip whitespace around comma-separated values in data lines so that
+        # nominal attributes like ' yes' match their declared values ('yes').
+        content = _strip_data_whitespace(content)
+        data, _meta = arff.loadarff(io.StringIO(content))
 
         df = pd.DataFrame(data)
 
