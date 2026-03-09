@@ -269,11 +269,9 @@ ckd_ml_project/
 
 | Name | Role |
 |---|---|
-| *(Quinn Mullings)* | Model delvelopment and implementation, analysis of methods and data. 
-| *(Team Member 2)* | 
-| *(Team Member 3)* |
-
-> Update the table above with your actual team members and their specific contributions before submission.
+| *(Quinn Mullings)* | Model delvelopment and implementation, analysis of methods and data, results and evidence
+| *(Bryan Quiala)* | Literature Review, Discussion & Limitations
+| *(James Garner)* | Abstract, Introduction, Results and Evidence
 
 ---
 
